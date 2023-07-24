@@ -1,7 +1,7 @@
 import os
 import shutil
-import ctypes
 import msvcrt
+import psutil
 
 
 def copy_files_by_input(destination_folder):
@@ -34,6 +34,40 @@ def copy_files_by_input(destination_folder):
     print("复制完成")
 
 
+def is_file_in_use(file_path):
+    try:
+        # 使用 psutil 检查是否有进程正在使用指定文件
+        for process in psutil.process_iter(["pid", "open_files"]):
+            open_files = process.info.get("open_files")
+            if open_files:
+                for file in open_files:
+                    if file.path == file_path:
+                        return True
+    except psutil.AccessDenied:
+        # 如果没有足够权限获取进程信息，假设文件已被使用
+        return True
+
+    return False
+
+
+def delete_file(file_path):
+    try:
+        os.remove(file_path)
+        print(f"已删除文件: {file_path}")
+    except Exception as e:
+        print(f"删除文件时出错: {e}")
+
+        # 尝试停用使用该文件的进程
+        terminate_processes_using_file(file_path)
+
+        try:
+            # 再次尝试删除文件
+            os.remove(file_path)
+            print(f"已删除文件: {file_path}")
+        except Exception as e:
+            print(f"再次删除文件时出错: {e}")
+
+
 def delete_all_files(folder_path):
     # 获取目标文件夹中的所有文件
     files = os.listdir(folder_path)
@@ -41,14 +75,23 @@ def delete_all_files(folder_path):
     for file in files:
         file_path = os.path.join(folder_path, file)
 
-        try:
-            # 删除文件
-            ctypes.windll.kernel32.DeleteFileW(file_path)
-            print(f"已删除文件: {file}")
-        except Exception as e:
-            print(f"删除文件时出错: {e}")
+        if os.path.isfile(file_path):  # 只删除文件，不处理目录
+            delete_file(file_path)
 
     print("删除完成")
+
+
+def terminate_processes_using_file(file_path):
+    try:
+        # 使用 psutil 停用使用指定文件的进程
+        for process in psutil.process_iter(["pid", "open_files"]):
+            for file in process.info["open_files"]:
+                if file.path == file_path:
+                    os.kill(process.pid, 9)
+                    print(f"停用进程 {process.pid} 使用了文件 {file_path}")
+    except psutil.AccessDenied:
+        # 如果没有足够权限停用进程，打印提示信息
+        print("无法停用进程：没有足够的权限。")
 
 
 search_term = input("请输入要复制的文件夹名称: ")
